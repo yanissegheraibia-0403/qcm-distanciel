@@ -62,6 +62,9 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
 .opt.sel{border-color:var(--accent);background:var(--accent-soft)}
 .letter{font-family:var(--f-mono);font-weight:700;width:1.4em;flex:none}
 .next{margin-top:20px;display:flex;justify-content:flex-end}
+.multi{display:inline-block;font-weight:700;font-size:.92rem;color:var(--warn);background:var(--warn-soft);border-radius:4px;padding:2px 8px;margin:0 0 12px}
+.fig{margin:0 0 16px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
+.fig svg{display:block;margin:0 auto;height:auto}
 .hint{color:var(--muted);font-size:.9rem;margin-top:8px}
 .big{font-size:1.3rem;font-weight:700}
 .done{border-color:var(--ok)} .done .big{color:var(--ok)}
@@ -106,7 +109,9 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     <div class="progress"><span id="prog"></span></div>
     <p class="qnum" id="qnum"></p>
     <p class="qtext" id="qtext"></p>
-    <div class="opts" id="opts" role="radiogroup"></div>
+    <p class="multi" id="multi" hidden>Plusieurs réponses possibles : coche toutes les bonnes réponses.</p>
+    <div class="fig" id="fig" hidden></div>
+    <div class="opts" id="opts"></div>
     <div class="next"><button id="next" disabled>Valider et passer à la suivante</button></div>
     <p class="hint">Une fois validée, tu ne peux plus revenir sur une question.</p>
   </section>
@@ -188,7 +193,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     reponses = []; idx = 0; etat = "encours";
     store("qcm-fait-" + QCM, "1");
     envoyer("debut", navigator.userAgent.slice(0, 120));
-    $("accueil").hidden = true; $("qcm").hidden = false;
+    $("accueil").hidden = true; $("fin").hidden = true; $("qcm").hidden = false;
     $("who").textContent = eleve + " · " + C.classe;
     fin = Date.now() + C.duree_min * 60000;
     tick = setInterval(chrono, 250); chrono();
@@ -208,16 +213,20 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     $("prog").style.width = (idx / ordre.length * 100) + "%";
     $("qnum").textContent = "Question " + (idx + 1) + " / " + ordre.length;
     $("qtext").textContent = q.texte;
+    var multiple = q.type === "multiple";
+    $("multi").hidden = !multiple;
+    $("fig").hidden = !q.figure; $("fig").innerHTML = q.figure || "";   // figure SVG écrite par le professeur
     var box = $("opts"); box.innerHTML = "";
+    box.setAttribute("role", multiple ? "group" : "radiogroup");
     melanger(Object.keys(q.propositions)).forEach(function (lettre, k) {
       var lab = document.createElement("label"); lab.className = "opt";
-      var inp = document.createElement("input"); inp.type = "radio"; inp.name = "r"; inp.value = lettre;
+      var inp = document.createElement("input"); inp.type = multiple ? "checkbox" : "radio"; inp.name = "r"; inp.value = lettre;
       var l = document.createElement("span"); l.className = "letter"; l.textContent = "abcd"[k] + ".";
       var t = document.createElement("span"); t.textContent = q.propositions[lettre];
       lab.appendChild(inp); lab.appendChild(l); lab.appendChild(t); box.appendChild(lab);
       inp.addEventListener("change", function () {
-        Array.prototype.forEach.call(box.children, function (c) { c.classList.toggle("sel", c === lab); });
-        $("next").disabled = false;
+        Array.prototype.forEach.call(box.children, function (c) { c.classList.toggle("sel", c.querySelector("input").checked); });
+        $("next").disabled = !box.querySelector("input:checked");
       });
     });
     $("next").disabled = true;
@@ -226,8 +235,9 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
 
   $("next").addEventListener("click", function () {
     if (etat !== "encours") return;
-    var c = document.querySelector('input[name="r"]:checked'); if (!c) return;
-    reponses.push({ q: ordre[idx].n, r: c.value });
+    var coches = Array.prototype.map.call(document.querySelectorAll('input[name="r"]:checked'), function (c) { return c.value; });
+    if (!coches.length) return;
+    reponses.push({ q: ordre[idx].n, r: coches.sort().join("") });   // plusieurs réponses : lettres triées, ex. "ACD"
     idx++;
     if (idx >= ordre.length) terminer("toutes les questions"); else afficher();
   });

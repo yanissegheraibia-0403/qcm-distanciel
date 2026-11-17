@@ -10,7 +10,7 @@ src, nom, classe, duree = sys.argv[1], sys.argv[2], sys.argv[3], int(sys.argv[4]
 URL = "https://script.google.com/macros/s/AKfycbxU63Rmn3UOkGhpRNDfG_GINqkU7ZtphjAKs_NfNrnMplj5LNS-_132jVJS9V8ERxpx/exec"
 
 data = json.load(open(os.path.join(src, "questions.json"), encoding="utf-8"))
-questions = [{"n": q["n"], "texte": q["texte"], "propositions": q["propositions"]} for q in data["questions"]]
+questions = [{k: q[k] for k in ("n", "texte", "propositions", "type", "figure") if k in q} for q in data["questions"]]
 assert all("reponse" not in q and "bonne" not in q for q in questions), "le corrigé ne doit pas être dans la page"
 
 config = {"qcm": nom, "classe": classe, "titre": data["titre"], "duree_min": duree, "url": URL, "questions": questions}
