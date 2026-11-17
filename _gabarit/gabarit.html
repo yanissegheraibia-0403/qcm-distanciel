@@ -62,7 +62,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
 .opt.sel{border-color:var(--accent);background:var(--accent-soft)}
 .letter{font-family:var(--f-mono);font-weight:700;width:1.4em;flex:none}
 .next{margin-top:20px;display:flex;justify-content:flex-end}
-.multi{display:inline-block;font-weight:700;font-size:.92rem;color:var(--warn);background:var(--warn-soft);border-radius:4px;padding:2px 8px;margin:0 0 12px}
+.consigne{color:var(--muted);font-size:.92rem;margin:-6px 0 12px}
 .fig{margin:0 0 16px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink)}
 .fig svg{display:block;margin:0 auto;height:auto}
 .hint{color:var(--muted);font-size:.9rem;margin-top:8px}
@@ -109,7 +109,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     <div class="progress"><span id="prog"></span></div>
     <p class="qnum" id="qnum"></p>
     <p class="qtext" id="qtext"></p>
-    <p class="multi" id="multi" hidden>Plusieurs réponses possibles : coche toutes les bonnes réponses.</p>
+    <p class="consigne">Coche la ou les bonnes réponses.</p>
     <div class="fig" id="fig" hidden></div>
     <div class="opts" id="opts"></div>
     <div class="next"><button id="next" disabled>Valider et passer à la suivante</button></div>
@@ -190,7 +190,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
   function demarrer() {
     session = Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
     debut = new Date().toISOString();
-    ordre = melanger(C.questions.map(function (q) { return q; }));
+    ordre = melanger(C.questions.map(preparer));
     reponses = []; idx = 0; etat = "encours";
     store("qcm-fait-" + QCM, "1");
     envoyer("debut", navigator.userAgent.slice(0, 120));
@@ -200,6 +200,48 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     tick = setInterval(chrono, 250); chrono();
     afficher();
     setTimeout(function () { armed = true; }, 800);  // laisse le temps au passage en plein écran
+  }
+
+  // ---------- valeurs différentes pour chaque élève ----------
+  function fmt(x) {
+    if (typeof x !== "number") return String(x);
+    var r = Number(x.toPrecision(4));
+    return r.toLocaleString("fr-FR", { maximumFractionDigits: 3 });
+  }
+  function evaluer(expr, env) {
+    var noms = Object.keys(env);
+    return Function.apply(null, noms.concat(["return (" + expr + ");"])).apply(null, noms.map(function (k) { return env[k]; }));
+  }
+  function rendre(txt, env) {
+    return txt.replace(/\{=([^}]+)\}/g, function (_, e) { return fmt(evaluer(e, env)); })
+              .replace(/\{(\w+)\}/g, function (m, k) { return k in env ? fmt(env[k]) : m; });
+  }
+  function preparer(q) {
+    if (!q.params) return q;
+    for (var essai = 0; essai < 200; essai++) {
+      var env = {};
+      Object.keys(q.params).forEach(function (k) { var l = q.params[k]; env[k] = l[Math.floor(Math.random() * l.length)]; });
+      if (q.contrainte && !evaluer(q.contrainte, env)) continue;
+      var props = {}, vus = {}, ok = true;
+      Object.keys(q.propositions).forEach(function (l) { var t = rendre(q.propositions[l], env); if (vus[t]) ok = false; vus[t] = 1; props[l] = t; });
+      if (!ok) continue;                                   // deux propositions identiques : on retire
+      var copie = {}; Object.keys(q).forEach(function (k) { copie[k] = q[k]; });
+      copie.texte = rendre(q.texte, env); copie.propositions = props; copie.env = env;
+      if (q.figure_auto && q.figure_auto.type === "oscillo") copie.figure = oscillo(env[q.figure_auto.periode_div], env[q.figure_auto.amplitude_div]);
+      return copie;
+    }
+    return q;
+  }
+  function oscillo(periodeDiv, ampDiv) {               // grille 10 x 8 divisions, 40 px par division
+    var g = "", pts = [];
+    for (var i = 0; i <= 10; i++) g += '<line x1="' + (20 + 40 * i) + '" y1="20" x2="' + (20 + 40 * i) + '" y2="340"/>';
+    for (var j = 0; j <= 8; j++) g += '<line x1="20" y1="' + (20 + 40 * j) + '" x2="420" y2="' + (20 + 40 * j) + '"/>';
+    for (var x = 0; x <= 400; x += 2) pts.push((20 + x) + "," + (180 - 40 * ampDiv * Math.sin(2 * Math.PI * x / (40 * periodeDiv))).toFixed(1));
+    return '<svg viewBox="0 0 440 360" role="img" aria-label="Oscillogramme d\'une tension sinusoïdale sur une grille de 10 divisions sur 8" style="max-width:440px;width:100%">' +
+      '<rect x="20" y="20" width="400" height="320" fill="none" stroke="currentColor" stroke-width="2"/>' +
+      '<g stroke="currentColor" stroke-opacity=".25" stroke-width="1">' + g + '</g>' +
+      '<line x1="20" y1="180" x2="420" y2="180" stroke="currentColor" stroke-opacity=".6" stroke-width="1.5"/>' +
+      '<polyline points="' + pts.join(" ") + '" fill="none" stroke="#1c6db5" stroke-width="3"/></svg>';
   }
 
   function chrono() {
@@ -214,14 +256,12 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     $("prog").style.width = (idx / ordre.length * 100) + "%";
     $("qnum").textContent = "Question " + (idx + 1) + " / " + ordre.length;
     $("qtext").textContent = q.texte;
-    var multiple = q.type === "multiple";
-    $("multi").hidden = !multiple;
     $("fig").hidden = !q.figure; $("fig").innerHTML = q.figure || "";   // figure SVG écrite par le professeur
     var box = $("opts"); box.innerHTML = "";
-    box.setAttribute("role", multiple ? "group" : "radiogroup");
+    box.setAttribute("role", "group");
     melanger(Object.keys(q.propositions)).forEach(function (lettre, k) {
       var lab = document.createElement("label"); lab.className = "opt";
-      var inp = document.createElement("input"); inp.type = multiple ? "checkbox" : "radio"; inp.name = "r"; inp.value = lettre;
+      var inp = document.createElement("input"); inp.type = "checkbox"; inp.name = "r"; inp.value = lettre;   // toujours des cases : on ne montre pas s'il y a une ou plusieurs bonnes réponses
       var l = document.createElement("span"); l.className = "letter"; l.textContent = "abcd"[k] + ".";
       var t = document.createElement("span"); t.textContent = q.propositions[lettre];
       lab.appendChild(inp); lab.appendChild(l); lab.appendChild(t); box.appendChild(lab);
@@ -238,7 +278,9 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     if (etat !== "encours") return;
     var coches = Array.prototype.map.call(document.querySelectorAll('input[name="r"]:checked'), function (c) { return c.value; });
     if (!coches.length) return;
-    reponses.push({ q: ordre[idx].n, r: coches.sort().join("") });   // plusieurs réponses : lettres triées, ex. "ACD"
+    var rep = { q: ordre[idx].n, r: coches.sort().join("") };
+    if (ordre[idx].env) rep.v = ordre[idx].env;               // valeurs tirées pour cet élève
+    reponses.push(rep);   // plusieurs réponses : lettres triées, ex. "ACD"
     idx++;
     if (idx >= ordre.length) terminer("toutes les questions"); else afficher();
   });
