@@ -137,7 +137,8 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
   $("meta").textContent = C.classe + " · " + C.questions.length + " questions · " + C.duree_min + " minutes";
   document.title = C.titre;
 
-  function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
+  // En mode test, le navigateur ne retient pas « déjà fait » (le professeur peut refaire l'essai sous un autre nom).
+  function store(k, v) { if (TEST) return null; try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } }
 
   // ---------- ordinateur uniquement ----------
   var el = document.documentElement;
