@@ -82,7 +82,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     <p class="meta" id="meta"></p>
     <div class="card rules">
       <h2>Règles (à lire avant de commencer)</h2>
-      <ul>
+      <ul id="regles">
         <li>Le QCM s'ouvre en <b>plein écran</b> et le <b>chrono démarre</b> dès que tu cliques sur « Commencer ».</li>
         <li>Si tu <b>quittes la page</b>, <b>changes d'onglet</b>, ouvres une autre application, <b>sors du plein écran</b> (touche Échap) ou <b>recharges</b> : ta copie est envoyée tout de suite et ta note est <b>0</b>.</li>
         <li><b>Une seule tentative.</b> Les questions sont dans un ordre différent pour chaque élève. Pas de retour en arrière.</li>
@@ -98,8 +98,8 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
       <p class="err" id="err" role="alert"></p>
     </div>
     <div class="card blocked" id="mobile" hidden>
-      <p class="big">Ce QCM se fait uniquement sur ordinateur.</p>
-      <p>Ouvre ce lien sur un ordinateur (Chrome, Edge ou Firefox), puis recommence.</p>
+      <p class="big">Ce navigateur ne permet pas de faire le QCM.</p>
+      <p>Ouvre ce lien avec Chrome, Edge ou Firefox, puis recommence.</p>
     </div>
   </section>
 
@@ -146,7 +146,17 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
   var mobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ||
                (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent)) ||   // iPad qui se déclare Mac
                (window.matchMedia && matchMedia("(pointer: coarse)").matches && !matchMedia("(pointer: fine)").matches);
-  if (mobile || !fsOK) { $("formCard").hidden = true; $("mobile").hidden = false; }
+  if (TEST && /[?&]mobile=1\b/.test(location.search)) mobile = true;   // test du mode téléphone sur ordinateur
+  if (!mobile && !fsOK) { $("formCard").hidden = true; $("mobile").hidden = false; }
+  if (mobile) {
+    $("regles").innerHTML =
+      "<li>Tu fais le QCM sur <b>téléphone</b> : le <b>chrono démarre</b> dès que tu cliques sur « Commencer ».</li>" +
+      "<li>Si tu <b>quittes l'application ou la page</b> (autre appli, écran d'accueil, appel, écran verrouillé, rechargement), ton QCM <b>s'arrête net</b> : ta copie est envoyée avec les réponses déjà données et tu ne peux plus rien faire.</li>" +
+      "<li><b>Une seule tentative.</b> Les questions sont dans un ordre différent pour chaque élève. Pas de retour en arrière.</li>" +
+      "<li>Quand le temps est écoulé, ta copie est envoyée automatiquement avec les réponses déjà données.</li>" +
+      "<li>Avant de commencer : active <b>Ne pas déranger</b>, règle la mise en veille de l'écran sur jamais (ou au plus long), branche ton chargeur.</li>";
+    document.querySelector('label[for="lu"]').textContent = "J'ai lu et compris les règles. Je sais que si je quitte l'application, mon QCM s'arrête et ma copie est envoyée telle quelle.";
+  }
 
   if (store("qcm-fait-" + QCM)) { montrerFin("Tu as déjà fait ce QCM.", "Une seule tentative est possible.", false); }
 
@@ -169,7 +179,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     $("err").textContent = "";
     // Le plein écran doit être demandé tout de suite, pendant le clic.
     var sansPE = TEST && /[?&]nofs=1\b/.test(location.search);  // test automatique seulement : Chrome refuse le plein écran aux clics robotisés
-    var req = sansPE ? null : (el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen());
+    var req = (sansPE || mobile) ? null : (el.requestFullscreen ? el.requestFullscreen() : el.webkitRequestFullscreen());   // pas de plein écran sur téléphone
     Promise.resolve(req).then(function () {
       $("go").disabled = true; $("go").textContent = "Vérification…";
       return fetch(C.url + "?action=deja&qcm=" + encodeURIComponent(QCM) + "&eleve=" + encodeURIComponent(eleve))
@@ -193,7 +203,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     ordre = melanger(C.questions.map(preparer));
     reponses = []; idx = 0; etat = "encours";
     store("qcm-fait-" + QCM, "1");
-    envoyer("debut", navigator.userAgent.slice(0, 120));
+    envoyer("debut", (mobile ? "téléphone · " : "ordinateur · ") + navigator.userAgent.slice(0, 110));
     $("accueil").hidden = true; $("fin").hidden = true; $("qcm").hidden = false;
     $("who").textContent = eleve + " · " + C.classe;
     fin = Date.now() + C.duree_min * 60000;
@@ -301,6 +311,13 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
     montrerFin("Tu as quitté le QCM : copie envoyée, note 0.", "Motif : " + motif + ". Si c'est une erreur technique, préviens ton professeur.", false);
   }
 
+  function interrompre(motif) {                         // téléphone : session terminée, copie envoyée telle quelle (pas de 0)
+    if (etat !== "encours" || !armed) return;
+    etat = "fini"; clearInterval(tick);
+    envoyer("interrompu", motif + " à " + new Date().toLocaleTimeString("fr-FR"));
+    montrerFin("Session terminée.", "Tu as quitté l'application : ton QCM s'est arrêté. Ta copie a été envoyée avec les " + reponses.length + " réponse(s) déjà données. Tu ne peux plus rien faire.", false);
+  }
+
   function quitterPleinEcran() {
     try { if (document.fullscreenElement) document.exitFullscreen(); else if (document.webkitFullscreenElement) document.webkitExitFullscreen(); } catch (e) {}
   }
@@ -312,11 +329,15 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline
   }
 
   // ---------- détection de sortie ----------
-  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "hidden") sortie("changement d'onglet ou fenêtre cachée"); });
-  window.addEventListener("blur", function () { sortie("autre fenêtre ou application ouverte"); });
-  document.addEventListener("fullscreenchange", function () { if (!document.fullscreenElement) sortie("sortie du plein écran"); });
-  document.addEventListener("webkitfullscreenchange", function () { if (!document.webkitFullscreenElement) sortie("sortie du plein écran"); });
-  window.addEventListener("pagehide", function () { sortie("page fermée ou rechargée"); });
+  // Ordinateur : sortie = note 0. Téléphone : arrêt net, copie envoyée telle quelle.
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState !== "hidden") return;
+    if (mobile) interrompre("application ou page quittée"); else sortie("changement d'onglet ou fenêtre cachée");
+  });
+  window.addEventListener("blur", function () { if (!mobile) sortie("autre fenêtre ou application ouverte"); });
+  document.addEventListener("fullscreenchange", function () { if (!mobile && !document.fullscreenElement) sortie("sortie du plein écran"); });
+  document.addEventListener("webkitfullscreenchange", function () { if (!mobile && !document.webkitFullscreenElement) sortie("sortie du plein écran"); });
+  window.addEventListener("pagehide", function () { if (mobile) interrompre("page fermée ou rechargée"); else sortie("page fermée ou rechargée"); });
 
   // ---------- gêner le copier-coller ----------
   ["contextmenu", "copy", "cut", "dragstart"].forEach(function (ev) {
